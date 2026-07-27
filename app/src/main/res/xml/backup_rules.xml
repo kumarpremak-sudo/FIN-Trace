@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <include domain="database" path="expense_tracker_db"/>
+    <include domain="database" path="expense_tracker_db-shm"/>
+    <include domain="database" path="expense_tracker_db-wal"/>
+</full-backup-content>
