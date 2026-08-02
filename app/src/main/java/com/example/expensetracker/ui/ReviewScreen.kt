@@ -41,24 +41,8 @@ class ReviewViewModel(private val dao: TransactionDao) : ViewModel() {
 
     fun assignCategoryAndName(transaction: Transaction, newName: String, category: String) {
         viewModelScope.launch {
-            // Update the specific transaction
-            dao.updateTransactionDetails(transaction.id, newName, category)
-            
-            // Extract a search key from the raw SMS if possible, or use the original name
-            // For now, we use the original captured merchant name as the mapping key
-            // We need the raw name captured by the parser to create a rule
-            // Let's assume the transaction's current 'merchant' is the parsed name
-            val searchKey = transaction.merchant ?: "Unknown"
-            
-            val rule = MerchantMapping(
-                rawMerchant = searchKey.lowercase(),
-                displayName = newName,
-                category = category
-            )
-            dao.insertMerchantRule(rule)
-            
-            // Retroactively update all transactions matching this raw name
-            dao.updatePastTransactionsForMerchant(searchKey, newName, category)
+            // Apply rule and rename all past matching transactions atomically
+            dao.applyRuleAndRename(transaction.rawMerchant.lowercase(), newName, category)
         }
     }
 }
@@ -98,7 +82,7 @@ fun ReviewScreen(viewModel: ReviewViewModel) {
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(20.dp)
             ) {
-                items(pendingList) { tx ->
+                items(pendingList, key = { it.id }) { tx ->
                     TriageItem(tx, categories, onDone = viewModel::assignCategoryAndName)
                 }
             }
@@ -108,8 +92,8 @@ fun ReviewScreen(viewModel: ReviewViewModel) {
 
 @Composable
 fun TriageItem(tx: Transaction, categories: List<String>, onDone: (Transaction, String, String) -> Unit) {
-    var editedName by remember { mutableStateOf(tx.merchant ?: "") }
-    var selectedCategory by remember { mutableStateOf("") }
+    var editedName by remember(tx.id) { mutableStateOf(tx.merchant) }
+    var selectedCategory by remember(tx.id) { mutableStateOf("") }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -135,7 +119,7 @@ fun TriageItem(tx: Transaction, categories: List<String>, onDone: (Transaction, 
             OutlinedTextField(
                 value = editedName,
                 onValueChange = { editedName = it },
-                label = { Text("Merchant Name") },
+                label = { Text("Correct Merchant Name") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 singleLine = true

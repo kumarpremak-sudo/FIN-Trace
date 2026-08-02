@@ -69,7 +69,7 @@ interface TransactionDao {
     @Delete
     suspend fun deleteRule(mapping: MerchantMapping)
 
-    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(merchant) = lower(:rawMerchant)")
+    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(rawMerchant) = lower(:rawMerchant)")
     suspend fun updatePastTransactionsForMerchant(rawMerchant: String, newName: String, newCategory: String)
 
     @Query("DELETE FROM transactions")

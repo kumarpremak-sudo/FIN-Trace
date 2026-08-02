@@ -12,8 +12,9 @@ data class Transaction(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val rawSms: String,
     val amount: Double,
-    val type: String, // "DEBIT", "CREDIT", "REFUND", "TRANSFER"
-    val merchant: String?,
+    val type: String, // "DEBIT", "CREDIT", "REFUND", "TRANSFER", "INVESTMENT"
+    val merchant: String, // Preferred name or parsed name
+    val rawMerchant: String, // Original parsed name from SMS (for rule mapping)
     val timestamp: Long,
     val category: String = "Uncategorized"
 )

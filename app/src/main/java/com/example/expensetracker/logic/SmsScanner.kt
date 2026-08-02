@@ -63,6 +63,7 @@ object SmsScanner {
                                 amount = parsed.amount,
                                 type = parsed.type,
                                 merchant = finalMerchantName,
+                                rawMerchant = rawMerchant,
                                 timestamp = date,
                                 category = finalCategory
                             ))
@@ -71,7 +72,6 @@ object SmsScanner {
                     
                     processed++
                     
-                    // Process in batches of 50 to avoid redundant DB triggers and overhead
                     if (batch.size >= 50) {
                         dao.insertTransactions(batch)
                         batch.clear()
@@ -82,7 +82,6 @@ object SmsScanner {
                     }
                 }
                 
-                // Final batch
                 if (batch.isNotEmpty()) {
                     dao.insertTransactions(batch)
                 }
