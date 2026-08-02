@@ -13,7 +13,7 @@ interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransaction(transaction: Transaction)
 
-    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 50")
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 100")
     fun getRecentTransactions(): Flow<List<Transaction>>
 
     @Query("""
@@ -35,7 +35,7 @@ interface TransactionDao {
     @Query("""
         SELECT category, SUM(amount) as totalAmount 
         FROM transactions 
-        WHERE (type = 'DEBIT' OR type = 'INVESTMENT') AND timestamp BETWEEN :startDate AND :endDate
+        WHERE (type = 'DEBIT' OR type = 'INVESTMENT') AND timestamp BETWEEN :startDate AND :endDate 
         GROUP BY category 
         ORDER BY totalAmount DESC
     """)
@@ -44,29 +44,29 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE category = 'Uncategorized' ORDER BY timestamp DESC")
     fun getUncategorizedTransactions(): Flow<List<Transaction>>
 
-    @Query("UPDATE transactions SET category = :newCategory WHERE id = :transactionId")
-    suspend fun updateTransactionCategory(transactionId: Int, newCategory: String)
+    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE id = :transactionId")
+    suspend fun updateTransactionDetails(transactionId: Int, newName: String, newCategory: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMerchantRule(mapping: MerchantMapping)
 
     @Query("""
-        SELECT category 
+        SELECT * 
         FROM merchant_mappings 
-        WHERE :merchantName LIKE '%' || merchant || '%' 
-        ORDER BY length(merchant) DESC 
+        WHERE :rawMerchant LIKE '%' || rawMerchant || '%' 
+        ORDER BY length(rawMerchant) DESC 
         LIMIT 1
     """)
-    suspend fun getCategoryForMerchant(merchantName: String): String?
+    suspend fun getRuleForMerchant(rawMerchant: String): MerchantMapping?
 
-    @Query("SELECT * FROM merchant_mappings ORDER BY merchant ASC")
+    @Query("SELECT * FROM merchant_mappings ORDER BY rawMerchant ASC")
     fun getAllRules(): Flow<List<MerchantMapping>>
 
     @Delete
     suspend fun deleteRule(mapping: MerchantMapping)
 
-    @Query("UPDATE transactions SET category = :newCategory WHERE lower(merchant) = lower(:merchantName)")
-    suspend fun updatePastTransactionsForMerchant(merchantName: String, newCategory: String)
+    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(merchant) = lower(:rawMerchant)")
+    suspend fun updatePastTransactionsForMerchant(rawMerchant: String, newName: String, newCategory: String)
 
     @Query("DELETE FROM transactions")
     suspend fun clearAllTransactions()

@@ -5,7 +5,7 @@ import java.util.Locale
 data class ParsedSms(
     val amount: Double,
     val type: String,
-    val merchant: String?,
+    val merchant: String, // Never null/unknown now
     val isValidTransaction: Boolean
 )
 
@@ -32,7 +32,7 @@ object SmsParser {
 
         // 1. Basic validation: exclude informational SMS
         if (INVALID_KEYWORDS.any { lowerSms.contains(it) }) {
-            return ParsedSms(0.0, "UNKNOWN", null, false)
+            return ParsedSms(0.0, "UNKNOWN", "Invalid Message", false)
         }
 
         // 2. Extract Amount
@@ -42,7 +42,7 @@ object SmsParser {
         val amountStr = amountMatch?.groupValues?.get(1)?.replace(",", "")
         val amount = amountStr?.toDoubleOrNull() ?: 0.0
 
-        if (amount <= 0.0) return ParsedSms(0.0, "UNKNOWN", null, false)
+        if (amount <= 0.0) return ParsedSms(0.0, "UNKNOWN", "Invalid Amount", false)
 
         // 3. Determine Transaction Type
         val type = when {
@@ -83,32 +83,21 @@ object SmsParser {
             }
         }
         
-        // Filter out matches that look like account numbers, helplines, or noise
         val rawMerchant = potentialMatches.find { candidate ->
             val lowerCandidate = candidate.lowercase()
-            
-            // Criteria to REJECT a merchant candidate
             val isSusAccountNumber = lowerCandidate.contains(Regex("\\d{4,}")) ||
                                      lowerCandidate.startsWith("a/c") || 
                                      lowerCandidate.startsWith("acct")
-            
             val isFooterNoise = lowerCandidate.contains("block") || 
                                 lowerCandidate.contains("reissue") || 
                                 lowerCandidate.contains("call") || 
                                 lowerCandidate.contains("not you")
             
-            val isGenericBankMsg = lowerCandidate.contains("your credit card") ||
-                                   lowerCandidate.contains("hdfc bank") ||
-                                   lowerCandidate.contains("dear cust")
-            
-            !isSusAccountNumber && 
-            !isFooterNoise &&
-            !isGenericBankMsg &&
-            !lowerCandidate.startsWith("inr") &&
-            !lowerCandidate.startsWith("rs") &&
-            !lowerCandidate.matches(Regex("\\d{2}-\\w{3}-\\d{2}")) &&
+            !isSusAccountNumber && !isFooterNoise &&
+            !lowerCandidate.startsWith("inr") && !lowerCandidate.startsWith("rs") &&
             !lowerCandidate.contains(Regex("^\\d+$"))
         } ?: potentialMatches.firstOrNull { !it.contains(Regex("\\d{4,}")) }
+          ?: "Transaction Details Needed" // Descriptive fallback instead of Unknown
         
         val merchant = cleanMerchantName(rawMerchant)
 
@@ -120,41 +109,35 @@ object SmsParser {
         return ParsedSms(
             amount = amount,
             type = finalType,
-            merchant = if (merchant != "Unknown") merchant else null,
+            merchant = merchant,
             isValidTransaction = finalType != "UNKNOWN"
         )
     }
 
     fun cleanMerchantName(rawName: String?): String {
-        if (rawName.isNullOrBlank()) return "Unknown"
+        if (rawName.isNullOrBlank()) return "Transaction Details Needed"
         
         var clean = rawName.trim()
-
-        // 1. Remove UPI suffixes
         clean = clean.replace(Regex("@[a-z]+"), "")
-        
-        // 2. Remove common prefixes
         val lowerClean = clean.lowercase()
         if (lowerClean.startsWith("vpa-")) clean = clean.substring(4)
         else if (lowerClean.startsWith("info-")) clean = clean.substring(5)
         
-        // 3. Strip trailing numbers and hyphens (only if they aren't the whole word)
         if (!clean.matches(Regex("^[-/]*\\d+$"))) {
             clean = clean.replace(Regex("[-/]*\\d+$"), "")
         }
 
-        // 4. Remove leading/trailing dots, underscores, and other non-alpha symbols
         clean = clean.trim { !it.isLetterOrDigit() }
-
+        
         return clean.trim().split(Regex("\\s+")).joinToString(" ") { word ->
             if (word.isEmpty()) return@joinToString ""
             if (word.contains("-")) {
                 word.split("-").joinToString("-") { part -> 
                     if (part.isEmpty()) ""
-                    else part.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                    else part.lowercase().replaceFirstChar { it.uppercase() }
                 }
             } else {
-                word.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+                word.lowercase().replaceFirstChar { it.uppercase() }
             }
         }
     }

@@ -5,6 +5,7 @@ import androidx.room.PrimaryKey
 
 @Entity(tableName = "merchant_mappings")
 data class MerchantMapping(
-    @PrimaryKey val merchant: String,
-    val category: String
+    @PrimaryKey val rawMerchant: String, // The merchant extracted from SMS
+    val displayName: String,             // User-assigned clean name
+    val category: String                 // User-assigned category
 )

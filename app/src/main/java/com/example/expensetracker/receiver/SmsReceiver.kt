@@ -43,15 +43,17 @@ class SmsReceiver : BroadcastReceiver() {
                     val database = AppDatabase.getInstance(context)
                     val dao = database.transactionDao()
 
-                    val merchantName = parsedData.merchant ?: "Unknown"
-                    val learnedCategory = dao.getCategoryForMerchant(merchantName.lowercase())
-                    val finalCategory = learnedCategory ?: "Uncategorized"
+                    val rawMerchantName = parsedData.merchant
+                    val savedRule = dao.getRuleForMerchant(rawMerchantName.lowercase())
+                    
+                    val finalMerchantName = savedRule?.displayName ?: rawMerchantName
+                    val finalCategory = savedRule?.category ?: "Uncategorized"
 
                     val transaction = Transaction(
                         rawSms = smsBody,
                         amount = parsedData.amount,
                         type = parsedData.type,
-                        merchant = merchantName,
+                        merchant = finalMerchantName,
                         timestamp = timestamp,
                         category = finalCategory
                     )

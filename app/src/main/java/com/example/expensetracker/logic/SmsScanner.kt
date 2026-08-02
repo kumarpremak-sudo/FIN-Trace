@@ -51,22 +51,25 @@ object SmsScanner {
                     if (isBankSender(address)) {
                         val parsed = SmsParser.parseBankSms(body)
                         if (parsed.isValidTransaction) {
-                            val merchantName = parsed.merchant ?: "Unknown"
-                            val learnedCategory = dao.getCategoryForMerchant(merchantName.lowercase())
+                            val rawMerchant = parsed.merchant
+                            val savedRule = dao.getRuleForMerchant(rawMerchant.lowercase())
+                            
+                            val finalMerchantName = savedRule?.displayName ?: rawMerchant
+                            val finalCategory = savedRule?.category ?: "Uncategorized"
                             
                             val transaction = Transaction(
                                 rawSms = body,
                                 amount = parsed.amount,
                                 type = parsed.type,
-                                merchant = merchantName,
+                                merchant = finalMerchantName,
                                 timestamp = date,
-                                category = learnedCategory ?: "Uncategorized"
+                                category = finalCategory
                             )
                             dao.insertTransaction(transaction)
                         }
                     }
                     processed++
-                    if (processed % 10 == 0) {
+                    if (processed % 20 == 0) {
                         _progress.value = processed.toFloat() / total.toFloat()
                     }
                 }

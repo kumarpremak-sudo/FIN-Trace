@@ -1,10 +1,15 @@
 package com.example.expensetracker.ui
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -37,12 +42,10 @@ class RulesViewModel(private val dao: TransactionDao) : ViewModel() {
     val isScanning = SmsScanner.isScanning
     val scanProgress = SmsScanner.progress
 
-    fun updateRuleCategory(merchant: String, newCategory: String, updatePastTransactions: Boolean) {
+    fun updateRule(rawMerchant: String, newName: String, newCategory: String) {
         viewModelScope.launch {
-            dao.insertMerchantRule(MerchantMapping(merchant, newCategory))
-            if (updatePastTransactions) {
-                dao.updatePastTransactionsForMerchant(merchant, newCategory)
-            }
+            dao.insertMerchantRule(MerchantMapping(rawMerchant, newName, newCategory))
+            dao.updatePastTransactionsForMerchant(rawMerchant, newName, newCategory)
         }
     }
 
@@ -69,9 +72,9 @@ fun RulesManagementScreen(viewModel: RulesViewModel) {
     var ruleToEdit by remember { mutableStateOf<MerchantMapping?>(null) }
     var showWipeDialog by remember { mutableStateOf(false) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -89,11 +92,11 @@ fun RulesManagementScreen(viewModel: RulesViewModel) {
             }
         }
         
-        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = if (isScanning) "Scanning messages... ${(progress * 100).toInt()}%" else "Categories are automatically applied based on these rules.",
+            text = if (isScanning) "Scanning messages... ${(progress * 100).toInt()}%" else "Rules define how merchants are named and categorized automatically.",
             fontSize = 12.sp,
-            color = if (isScanning) MaterialTheme.colorScheme.primary else Color.Gray
+            color = if (isScanning) MaterialTheme.colorScheme.primary else Color.Gray,
+            modifier = Modifier.padding(horizontal = 16.dp)
         )
         
         Spacer(modifier = Modifier.height(16.dp))
@@ -101,7 +104,7 @@ fun RulesManagementScreen(viewModel: RulesViewModel) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 16.dp)
+            contentPadding = PaddingValues(16.dp)
         ) {
             items(rules) { rule ->
                 RuleRow(
@@ -138,12 +141,11 @@ fun RulesManagementScreen(viewModel: RulesViewModel) {
 
     ruleToEdit?.let { mapping ->
         EditRuleDialog(
-            merchant = mapping.merchant,
-            currentCategory = mapping.category,
+            mapping = mapping,
             categories = viewModel.categories,
             onDismiss = { ruleToEdit = null },
-            onSave = { newCategory, applyRetroactively ->
-                viewModel.updateRuleCategory(mapping.merchant, newCategory, applyRetroactively)
+            onSave = { newName, newCategory ->
+                viewModel.updateRule(mapping.rawMerchant, newName, newCategory)
                 ruleToEdit = null
             }
         )
@@ -154,7 +156,8 @@ fun RulesManagementScreen(viewModel: RulesViewModel) {
 fun RuleRow(rule: MerchantMapping, onEdit: () -> Unit, onDelete: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
             modifier = Modifier.padding(16.dp).fillMaxWidth(),
@@ -162,14 +165,17 @@ fun RuleRow(rule: MerchantMapping, onEdit: () -> Unit, onDelete: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = rule.merchant.replaceFirstChar { it.uppercase() }, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Text(text = rule.category, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+                Text(text = rule.displayName, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(text = "Key: ${rule.rawMerchant}", color = Color.Gray, fontSize = 11.sp)
+                Text(text = rule.category, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
-            IconButton(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = "Edit Rule", modifier = Modifier.size(20.dp))
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete Rule", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+            Row {
+                IconButton(onClick = onEdit) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit Rule", modifier = Modifier.size(20.dp))
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Rule", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                }
             }
         }
     }
@@ -177,24 +183,33 @@ fun RuleRow(rule: MerchantMapping, onEdit: () -> Unit, onDelete: () -> Unit) {
 
 @Composable
 fun EditRuleDialog(
-    merchant: String,
-    currentCategory: String,
+    mapping: MerchantMapping,
     categories: List<String>,
     onDismiss: () -> Unit,
-    onSave: (String, Boolean) -> Unit 
+    onSave: (String, String) -> Unit 
 ) {
-    var selectedCategory by remember { mutableStateOf(currentCategory) }
-    var applyRetroactively by remember { mutableStateOf(false) } 
+    var editedName by remember { mutableStateOf(mapping.displayName) }
+    var selectedCategory by remember { mutableStateOf(mapping.category) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit rule for ${merchant.capitalize()}") },
+        title = { Text("Edit Rule") },
         text = {
-            Column {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(
+                    value = editedName,
+                    onValueChange = { editedName = it },
+                    label = { Text("Display Name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Category", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                
                 categories.forEach { category ->
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedCategory = category }
+                        modifier = Modifier.fillMaxWidth().clickable { selectedCategory = category }.padding(vertical = 4.dp)
                     ) {
                         RadioButton(
                             selected = (category == selectedCategory),
@@ -203,31 +218,10 @@ fun EditRuleDialog(
                         Text(text = category, modifier = Modifier.padding(start = 8.dp))
                     }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().clickable { applyRetroactively = !applyRetroactively }
-                ) {
-                    Checkbox(
-                        checked = applyRetroactively,
-                        onCheckedChange = { applyRetroactively = it }
-                    )
-                    Text(
-                        text = "Apply to all past transactions", 
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         },
         confirmButton = {
-            Button(
-                onClick = { onSave(selectedCategory, applyRetroactively) } 
-            ) {
+            Button(onClick = { onSave(editedName, selectedCategory) }) {
                 Text("Save Changes")
             }
         },
@@ -236,5 +230,3 @@ fun EditRuleDialog(
         }
     )
 }
-
-private fun String.capitalize() = lowercase().replaceFirstChar { it.uppercase() }
