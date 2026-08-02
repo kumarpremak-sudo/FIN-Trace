@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction as RoomTransaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -12,6 +13,9 @@ interface TransactionDao {
     
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransaction(transaction: Transaction)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertTransactions(transactions: List<Transaction>)
 
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 100")
     fun getRecentTransactions(): Flow<List<Transaction>>
@@ -70,4 +74,10 @@ interface TransactionDao {
 
     @Query("DELETE FROM transactions")
     suspend fun clearAllTransactions()
+
+    @RoomTransaction
+    suspend fun applyRuleAndRename(rawMerchant: String, newName: String, newCategory: String) {
+        insertMerchantRule(MerchantMapping(rawMerchant, newName, newCategory))
+        updatePastTransactionsForMerchant(rawMerchant, newName, newCategory)
+    }
 }

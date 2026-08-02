@@ -42,6 +42,7 @@ object SmsScanner {
 
                 val total = cursor.count
                 var processed = 0
+                val batch = mutableListOf<Transaction>()
 
                 while (cursor.moveToNext()) {
                     val address = cursor.getString(addressIdx)
@@ -57,21 +58,33 @@ object SmsScanner {
                             val finalMerchantName = savedRule?.displayName ?: rawMerchant
                             val finalCategory = savedRule?.category ?: "Uncategorized"
                             
-                            val transaction = Transaction(
+                            batch.add(Transaction(
                                 rawSms = body,
                                 amount = parsed.amount,
                                 type = parsed.type,
                                 merchant = finalMerchantName,
                                 timestamp = date,
                                 category = finalCategory
-                            )
-                            dao.insertTransaction(transaction)
+                            ))
                         }
                     }
+                    
                     processed++
-                    if (processed % 20 == 0) {
+                    
+                    // Process in batches of 50 to avoid redundant DB triggers and overhead
+                    if (batch.size >= 50) {
+                        dao.insertTransactions(batch)
+                        batch.clear()
+                    }
+
+                    if (processed % 25 == 0) {
                         _progress.value = processed.toFloat() / total.toFloat()
                     }
+                }
+                
+                // Final batch
+                if (batch.isNotEmpty()) {
+                    dao.insertTransactions(batch)
                 }
             }
         } finally {

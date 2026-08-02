@@ -36,6 +36,12 @@ import java.util.Calendar
 
 enum class Timeframe { DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 
+data class DashboardState(
+    val totalSpent: Double = 0.0,
+    val totalInvested: Double = 0.0,
+    val categoryBreakdown: List<CategorySum> = emptyList()
+)
+
 class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
 
     private val _timeframe = MutableStateFlow(Timeframe.MONTHLY)
@@ -55,22 +61,22 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
         
         return when (timeframe) {
             Timeframe.DAILY -> {
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
                 cal.timeInMillis to end
             }
             Timeframe.WEEKLY -> {
                 cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
                 cal.timeInMillis to end
             }
             Timeframe.MONTHLY -> {
                 cal.set(Calendar.DAY_OF_MONTH, 1)
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
                 cal.timeInMillis to end
             }
             Timeframe.YEARLY -> {
                 cal.set(Calendar.DAY_OF_YEAR, 1)
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0)
+                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
                 cal.timeInMillis to end
             }
             Timeframe.CUSTOM -> {
@@ -78,13 +84,11 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
                 startCal.set(Calendar.YEAR, year)
                 startCal.set(Calendar.MONTH, month)
                 startCal.set(Calendar.DAY_OF_MONTH, 1)
-                startCal.set(Calendar.HOUR_OF_DAY, 0); startCal.set(Calendar.MINUTE, 0); startCal.set(Calendar.SECOND, 0)
+                startCal.set(Calendar.HOUR_OF_DAY, 0); startCal.set(Calendar.MINUTE, 0); startCal.set(Calendar.SECOND, 0); startCal.set(Calendar.MILLISECOND, 0)
                 
-                val endCal = Calendar.getInstance()
-                endCal.set(Calendar.YEAR, year)
-                endCal.set(Calendar.MONTH, month)
+                val endCal = (startCal.clone() as Calendar)
                 endCal.set(Calendar.DAY_OF_MONTH, endCal.getActualMaximum(Calendar.DAY_OF_MONTH))
-                endCal.set(Calendar.HOUR_OF_DAY, 23); endCal.set(Calendar.MINUTE, 59); endCal.set(Calendar.SECOND, 59)
+                endCal.set(Calendar.HOUR_OF_DAY, 23); endCal.set(Calendar.MINUTE, 59); endCal.set(Calendar.SECOND, 59); endCal.set(Calendar.MILLISECOND, 999)
                 
                 startCal.timeInMillis to endCal.timeInMillis
             }
@@ -92,17 +96,20 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)
-    val dashboardData = combine(_timeframe, _selectedMonth, _selectedYear, _refreshTrigger) { tf, m, y, _ ->
+    val dashboardData: StateFlow<DashboardState> = combine(
+        _timeframe, _selectedMonth, _selectedYear, _refreshTrigger
+    ) { tf, m, y, _ ->
         getRange(tf, m, y)
-    }.flatMapLatest { range ->
+    }.distinctUntilChanged() // Only react if the date range actually changes
+    .flatMapLatest { range ->
         combine(
             dao.getTotalSpent(range.first, range.second),
             dao.getTotalInvested(range.first, range.second),
             dao.getExpensesByCategory(range.first, range.second)
         ) { spent, invested, categories ->
-            Triple(spent ?: 0.0, invested ?: 0.0, categories)
+            DashboardState(spent ?: 0.0, invested ?: 0.0, categories)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Triple(0.0, 0.0, emptyList()))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState())
 
     val recentTransactions: StateFlow<List<Transaction>> = dao.getRecentTransactions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -170,7 +177,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     StatCard(
                         title = "Expenses",
-                        amount = data.first,
+                        amount = data.totalSpent,
                         icon = Icons.Default.ArrowDownward,
                         color = Color(0xFFFFEBEE),
                         contentColor = Color(0xFFC62828),
@@ -178,7 +185,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                     )
                     StatCard(
                         title = "Investments",
-                        amount = data.second,
+                        amount = data.totalInvested,
                         icon = Icons.Default.ArrowUpward,
                         color = Color(0xFFE8F5E9),
                         contentColor = Color(0xFF2E7D32),
@@ -219,12 +226,12 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             contentPadding = PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            if (data.third.isNotEmpty()) {
+            if (data.categoryBreakdown.isNotEmpty()) {
                 item {
                     Text("Top Categories", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
-                items(data.third.take(3)) { cat ->
-                    CategoryProgress(cat, data.third.first().totalAmount)
+                items(data.categoryBreakdown.take(3), key = { it.category }) { cat ->
+                    CategoryProgress(cat, data.categoryBreakdown.first().totalAmount)
                 }
             }
 
@@ -241,7 +248,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 }
             }
 
-            items(transactions) { tx ->
+            items(transactions, key = { it.id }) { tx ->
                 TransactionItem(tx)
             }
         }
@@ -251,7 +258,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
 @Composable
 fun DatePickerView(currentMonth: Int, currentYear: Int, onMonthSelected: (Int) -> Unit, onYearSelected: (Int) -> Unit) {
     val months = DateFormatSymbols().months.take(12)
-    val years = (2020..2026).toList()
+    val years = (2020..Calendar.getInstance().get(Calendar.YEAR)).toList()
 
     Column(
         modifier = Modifier
