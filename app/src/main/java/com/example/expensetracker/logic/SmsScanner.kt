@@ -40,7 +40,11 @@ object SmsScanner {
                 val bodyIdx = cursor.getColumnIndex(Telephony.Sms.BODY)
                 val dateIdx = cursor.getColumnIndex(Telephony.Sms.DATE)
 
+                if (addressIdx == -1 || bodyIdx == -1 || dateIdx == -1) return@use
+
                 val total = cursor.count
+                if (total == 0) return@use
+
                 var processed = 0
                 val batch = mutableListOf<Transaction>()
 
@@ -73,17 +77,17 @@ object SmsScanner {
                     processed++
                     
                     if (batch.size >= 50) {
-                        dao.insertTransactions(batch)
+                        dao.insertTransactions(batch.toList())
                         batch.clear()
                     }
 
-                    if (processed % 25 == 0) {
+                    if (processed % 20 == 0) {
                         _progress.value = processed.toFloat() / total.toFloat()
                     }
                 }
                 
                 if (batch.isNotEmpty()) {
-                    dao.insertTransactions(batch)
+                    dao.insertTransactions(batch.toList())
                 }
             }
         } finally {

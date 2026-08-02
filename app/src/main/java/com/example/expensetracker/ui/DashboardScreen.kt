@@ -32,7 +32,10 @@ import com.example.expensetracker.data.TransactionDao
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import java.text.DateFormatSymbols
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 enum class Timeframe { DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 
@@ -100,7 +103,7 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
         _timeframe, _selectedMonth, _selectedYear, _refreshTrigger
     ) { tf, m, y, _ ->
         getRange(tf, m, y)
-    }.distinctUntilChanged() // Only react if the date range actually changes
+    }.distinctUntilChanged()
     .flatMapLatest { range ->
         combine(
             dao.getTotalSpent(range.first, range.second),
@@ -131,7 +134,6 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
     var showDatePicker by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        // Modern Header
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -195,7 +197,6 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             }
         }
 
-        // Timeframe Selector Tabs
         val entries = Timeframe.entries.take(4)
         TabRow(
             selectedTabIndex = if (timeframe == Timeframe.CUSTOM) 0 else timeframe.ordinal,
@@ -230,8 +231,9 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 item {
                     Text("Top Categories", fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 }
+                val maxAmount = data.categoryBreakdown.firstOrNull()?.totalAmount ?: 1.0
                 items(data.categoryBreakdown.take(3), key = { it.category }) { cat ->
-                    CategoryProgress(cat, data.categoryBreakdown.first().totalAmount)
+                    CategoryProgress(cat, maxAmount)
                 }
             }
 
@@ -241,15 +243,21 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Recent Transactions", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    TextButton(onClick = { /* View All */ }) {
-                        Text("View All")
+                    Text("Recent Activity", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    TextButton(onClick = { viewModel.refresh() }) {
+                        Text("Refresh")
                     }
                 }
             }
 
-            items(transactions, key = { it.id }) { tx ->
-                TransactionItem(tx)
+            if (transactions.isEmpty()) {
+                item {
+                    Text("No transactions found.", color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+                }
+            } else {
+                items(transactions, key = { it.id }) { tx ->
+                    TransactionItem(tx)
+                }
             }
         }
     }
@@ -338,6 +346,9 @@ fun CategoryProgress(cat: CategorySum, max: Double) {
 
 @Composable
 fun TransactionItem(tx: Transaction) {
+    val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
+    val dateString = remember(tx.timestamp) { dateFormat.format(Date(tx.timestamp)) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -376,11 +387,17 @@ fun TransactionItem(tx: Transaction) {
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(tx.merchant ?: "Unknown", fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(tx.category, color = Color.Gray, fontSize = 12.sp)
+            Text(tx.merchant, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(tx.category, color = Color.Gray, fontSize = 11.sp)
+                Spacer(modifier = Modifier.width(6.dp))
+                Box(modifier = Modifier.size(2.dp).background(Color.LightGray, CircleShape))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(dateString, color = Color.Gray, fontSize = 11.sp)
+            }
         }
         Text(
-            text = "${if (tx.type == "DEBIT") "-" else ""} ₹${tx.amount}",
+            text = "${if (tx.type == "DEBIT") "-" else ""} ₹${"%.2f".format(tx.amount)}",
             fontWeight = FontWeight.ExtraBold,
             fontSize = 16.sp,
             color = if (tx.type == "DEBIT") Color(0xFFC62828) else Color(0xFF2E7D32)

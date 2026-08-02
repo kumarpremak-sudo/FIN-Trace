@@ -1,6 +1,8 @@
 package com.example.expensetracker.ui
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -9,6 +11,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material3.*
@@ -35,13 +39,12 @@ import kotlinx.coroutines.launch
 class ReviewViewModel(private val dao: TransactionDao) : ViewModel() {
 
     val pendingTransactions: StateFlow<List<Transaction>> = dao.getUncategorizedTransactions()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val availableCategories = listOf("Food", "Transport", "Shopping", "Groceries", "Bills", "Investment", "Health", "Personal")
 
     fun assignCategoryAndName(transaction: Transaction, newName: String, category: String) {
         viewModelScope.launch {
-            // Apply rule and rename all past matching transactions atomically
             dao.applyRuleAndRename(transaction.rawMerchant.lowercase(), newName, category)
         }
     }
@@ -94,6 +97,7 @@ fun ReviewScreen(viewModel: ReviewViewModel) {
 fun TriageItem(tx: Transaction, categories: List<String>, onDone: (Transaction, String, String) -> Unit) {
     var editedName by remember(tx.id) { mutableStateOf(tx.merchant) }
     var selectedCategory by remember(tx.id) { mutableStateOf("") }
+    var isExpanded by remember { mutableStateOf(false) }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -119,7 +123,7 @@ fun TriageItem(tx: Transaction, categories: List<String>, onDone: (Transaction, 
             OutlinedTextField(
                 value = editedName,
                 onValueChange = { editedName = it },
-                label = { Text("Correct Merchant Name") },
+                label = { Text("Merchant Name") },
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 singleLine = true
@@ -127,13 +131,38 @@ fun TriageItem(tx: Transaction, categories: List<String>, onDone: (Transaction, 
 
             Spacer(modifier = Modifier.height(12.dp))
             
-            Box(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)).padding(12.dp)) {
-                Text(text = tx.rawSms, fontSize = 11.sp, color = Color.Gray, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .animateContentSize()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(12.dp)
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = tx.rawSms, 
+                            fontSize = 11.sp, 
+                            color = Color.Gray, 
+                            maxLines = if (isExpanded) Int.MAX_VALUE else 2, 
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, 
+                            contentDescription = null, 
+                            tint = Color.Gray, 
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Text("CATEGORY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
+            Text("SELECT CATEGORY", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Color.Gray)
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(categories) { cat ->
