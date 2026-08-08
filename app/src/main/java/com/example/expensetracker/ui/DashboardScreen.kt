@@ -3,9 +3,11 @@ package com.example.expensetracker.ui
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -27,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.expensetracker.data.CategorySum
+import com.example.expensetracker.data.CurrencySum
 import com.example.expensetracker.data.Transaction
 import com.example.expensetracker.data.TransactionDao
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,8 +43,8 @@ import java.util.Locale
 enum class Timeframe { DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 
 data class DashboardState(
-    val totalSpent: Double = 0.0,
-    val totalInvested: Double = 0.0,
+    val spentByCurrency: List<CurrencySum> = emptyList(),
+    val investedByCurrency: List<CurrencySum> = emptyList(),
     val categoryBreakdown: List<CategorySum> = emptyList()
 )
 
@@ -61,7 +64,6 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
     private fun getRange(timeframe: Timeframe, month: Int, year: Int): Pair<Long, Long> {
         val cal = Calendar.getInstance()
         val end = cal.timeInMillis
-        
         return when (timeframe) {
             Timeframe.DAILY -> {
                 cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
@@ -88,11 +90,9 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
                 startCal.set(Calendar.MONTH, month)
                 startCal.set(Calendar.DAY_OF_MONTH, 1)
                 startCal.set(Calendar.HOUR_OF_DAY, 0); startCal.set(Calendar.MINUTE, 0); startCal.set(Calendar.SECOND, 0); startCal.set(Calendar.MILLISECOND, 0)
-                
                 val endCal = (startCal.clone() as Calendar)
                 endCal.set(Calendar.DAY_OF_MONTH, endCal.getActualMaximum(Calendar.DAY_OF_MONTH))
                 endCal.set(Calendar.HOUR_OF_DAY, 23); endCal.set(Calendar.MINUTE, 59); endCal.set(Calendar.SECOND, 59); endCal.set(Calendar.MILLISECOND, 999)
-                
                 startCal.timeInMillis to endCal.timeInMillis
             }
         }
@@ -106,11 +106,11 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
     }.distinctUntilChanged()
     .flatMapLatest { range ->
         combine(
-            dao.getTotalSpent(range.first, range.second),
-            dao.getTotalInvested(range.first, range.second),
+            dao.getTotalSpentByCurrency(range.first, range.second),
+            dao.getTotalInvestedByCurrency(range.first, range.second),
             dao.getExpensesByCategory(range.first, range.second)
         ) { spent, invested, categories ->
-            DashboardState(spent ?: 0.0, invested ?: 0.0, categories)
+            DashboardState(spent, invested, categories)
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState())
 
@@ -138,11 +138,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(MaterialTheme.colorScheme.primary, Color(0xFF4338CA))
-                    )
-                )
+                .background(Brush.verticalGradient(colors = listOf(MaterialTheme.colorScheme.primary, Color(0xFF4338CA))))
                 .padding(top = 24.dp, bottom = 32.dp, start = 20.dp, end = 20.dp)
         ) {
             Column {
@@ -154,9 +150,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                     Column {
                         Text("Overview", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
                         Text(
-                            text = if (timeframe == Timeframe.CUSTOM) 
-                                "${DateFormatSymbols().months[month]} $year" 
-                            else "Recent Activity",
+                            text = if (timeframe == Timeframe.CUSTOM) "${DateFormatSymbols().months[month]} $year" else "Recent Activity",
                             color = Color.White,
                             fontSize = 24.sp,
                             fontWeight = FontWeight.Bold
@@ -176,23 +170,28 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard(
-                        title = "Expenses",
-                        amount = data.totalSpent,
-                        icon = Icons.Default.ArrowDownward,
-                        color = Color(0xFFFFEBEE),
-                        contentColor = Color(0xFFC62828),
-                        modifier = Modifier.weight(1f)
-                    )
-                    StatCard(
-                        title = "Investments",
-                        amount = data.totalInvested,
-                        icon = Icons.Default.ArrowUpward,
-                        color = Color(0xFFE8F5E9),
-                        contentColor = Color(0xFF2E7D32),
-                        modifier = Modifier.weight(1f)
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val allCurrencies = (data.spentByCurrency.map { it.currency } + data.investedByCurrency.map { it.currency }).distinct()
+                    
+                    if (allCurrencies.isEmpty()) {
+                        StatCard("Expenses", 0.0, "INR", Icons.Default.ArrowDownward, Color(0xFFFFEBEE), Color(0xFFC62828), Modifier.width(160.dp))
+                        StatCard("Investments", 0.0, "INR", Icons.Default.ArrowUpward, Color(0xFFE8F5E9), Color(0xFF2E7D32), Modifier.width(160.dp))
+                    } else {
+                        allCurrencies.forEach { curr ->
+                            val spent = data.spentByCurrency.find { it.currency == curr }?.totalAmount ?: 0.0
+                            val invested = data.investedByCurrency.find { it.currency == curr }?.totalAmount ?: 0.0
+                            
+                            if (spent != 0.0) {
+                                StatCard("Expenses", spent, curr, Icons.Default.ArrowDownward, Color(0xFFFFEBEE), Color(0xFFC62828), Modifier.width(160.dp))
+                            }
+                            if (invested != 0.0) {
+                                StatCard("Investments", invested, curr, Icons.Default.ArrowUpward, Color(0xFFE8F5E9), Color(0xFF2E7D32), Modifier.width(160.dp))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -206,10 +205,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             indicator = { tabPositions ->
                 val index = if (timeframe == Timeframe.CUSTOM) 0 else timeframe.ordinal
                 if (index < tabPositions.size) {
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.tabIndicatorOffset(tabPositions[index]),
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(tabPositions[index]), color = MaterialTheme.colorScheme.primary)
                 }
             }
         ) {
@@ -228,36 +224,22 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (data.categoryBreakdown.isNotEmpty()) {
-                item {
-                    Text("Top Categories", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                }
+                item { Text("Top Categories", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                 val maxAmount = data.categoryBreakdown.firstOrNull()?.totalAmount ?: 1.0
                 items(data.categoryBreakdown.take(3), key = { it.category }) { cat ->
                     CategoryProgress(cat, maxAmount)
                 }
             }
-
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Recent Activity", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    TextButton(onClick = { viewModel.refresh() }) {
-                        Text("Refresh")
-                    }
+                    TextButton(onClick = { viewModel.refresh() }) { Text("Refresh") }
                 }
             }
-
             if (transactions.isEmpty()) {
-                item {
-                    Text("No transactions found.", color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-                }
+                item { Text("No transactions found.", color = Color.Gray, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
             } else {
-                items(transactions, key = { it.id }) { tx ->
-                    TransactionItem(tx)
-                }
+                items(transactions, key = { it.id }) { tx -> TransactionItem(tx) }
             }
         }
     }
@@ -267,43 +249,20 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
 fun DatePickerView(currentMonth: Int, currentYear: Int, onMonthSelected: (Int) -> Unit, onYearSelected: (Int) -> Unit) {
     val months = DateFormatSymbols().months.take(12)
     val years = (2020..Calendar.getInstance().get(Calendar.YEAR)).toList()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 16.dp)
-            .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp))
-            .padding(8.dp)
-    ) {
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 16.dp).background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp)).padding(8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
            var expandedMonth by remember { mutableStateOf(false) }
            var expandedYear by remember { mutableStateOf(false) }
-
             Box {
-                Button(
-                    onClick = { expandedMonth = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))
-                ) {
-                    Text(months[currentMonth], color = Color.White)
-                }
+                Button(onClick = { expandedMonth = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))) { Text(months[currentMonth], color = Color.White) }
                 DropdownMenu(expanded = expandedMonth, onDismissRequest = { expandedMonth = false }) {
-                    months.forEachIndexed { index, m ->
-                        DropdownMenuItem(text = { Text(m) }, onClick = { onMonthSelected(index); expandedMonth = false })
-                    }
+                    months.forEachIndexed { index, m -> DropdownMenuItem(text = { Text(m) }, onClick = { onMonthSelected(index); expandedMonth = false }) }
                 }
             }
-
             Box {
-                Button(
-                    onClick = { expandedYear = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))
-                ) {
-                    Text(currentYear.toString(), color = Color.White)
-                }
+                Button(onClick = { expandedYear = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.2f))) { Text(currentYear.toString(), color = Color.White) }
                 DropdownMenu(expanded = expandedYear, onDismissRequest = { expandedYear = false }) {
-                    years.forEach { y ->
-                        DropdownMenuItem(text = { Text(y.toString()) }, onClick = { onYearSelected(y); expandedYear = false })
-                    }
+                    years.forEach { y -> DropdownMenuItem(text = { Text(y.toString()) }, onClick = { onYearSelected(y); expandedYear = false }) }
                 }
             }
         }
@@ -311,17 +270,13 @@ fun DatePickerView(currentMonth: Int, currentYear: Int, onMonthSelected: (Int) -
 }
 
 @Composable
-fun StatCard(title: String, amount: Double, icon: ImageVector, color: Color, contentColor: Color, modifier: Modifier) {
-    Surface(
-        modifier = modifier,
-        color = color,
-        shape = RoundedCornerShape(20.dp)
-    ) {
+fun StatCard(title: String, amount: Double, currency: String, icon: ImageVector, color: Color, contentColor: Color, modifier: Modifier) {
+    Surface(modifier = modifier, color = color, shape = RoundedCornerShape(20.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(20.dp))
             Spacer(modifier = Modifier.height(8.dp))
-            Text(title, color = contentColor.copy(alpha = 0.7f), fontSize = 12.sp, fontWeight = FontWeight.Medium)
-            Text("₹${"%.0f".format(amount)}", color = contentColor, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = contentColor.copy(alpha = 0.7f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+            Text(formatCurrency(amount, currency), color = contentColor, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -335,12 +290,7 @@ fun CategoryProgress(cat: CategorySum, max: Double) {
             Text("₹${"%.0f".format(cat.totalAmount)}", fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
         Spacer(modifier = Modifier.height(6.dp))
-        LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
-            color = MaterialTheme.colorScheme.primary,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant
-        )
+        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape), color = MaterialTheme.colorScheme.primary, trackColor = MaterialTheme.colorScheme.surfaceVariant)
     }
 }
 
@@ -359,42 +309,9 @@ fun formatCurrency(amount: Double, currency: String): String {
 fun TransactionItem(tx: Transaction) {
     val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     val dateString = remember(tx.timestamp) { dateFormat.format(Date(tx.timestamp)) }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surface)
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .background(
-                    when(tx.type) {
-                        "INVESTMENT" -> Color(0xFFE8F5E9)
-                        "DEBIT" -> Color(0xFFFFEBEE)
-                        else -> Color(0xFFF3E5F5)
-                    },
-                    CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = when(tx.type) {
-                    "INVESTMENT" -> Icons.Default.TrendingUp
-                    "DEBIT" -> Icons.Default.ShoppingCart
-                    else -> Icons.Default.AccountBalanceWallet
-                },
-                contentDescription = null,
-                modifier = Modifier.size(20.dp),
-                tint = when(tx.type) {
-                    "INVESTMENT" -> Color(0xFF2E7D32)
-                    "DEBIT" -> Color(0xFFC62828)
-                    else -> MaterialTheme.colorScheme.primary
-                }
-            )
+    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.size(40.dp).background(when(tx.type) { "INVESTMENT" -> Color(0xFFE8F5E9); "DEBIT" -> Color(0xFFFFEBEE); else -> Color(0xFFF3E5F5) }, CircleShape), contentAlignment = Alignment.Center) {
+            Icon(imageVector = when(tx.type) { "INVESTMENT" -> Icons.Default.TrendingUp; "DEBIT" -> Icons.Default.ShoppingCart; else -> Icons.Default.AccountBalanceWallet }, contentDescription = null, modifier = Modifier.size(20.dp), tint = when(tx.type) { "INVESTMENT" -> Color(0xFF2E7D32); "DEBIT" -> Color(0xFFC62828); else -> MaterialTheme.colorScheme.primary })
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -407,11 +324,6 @@ fun TransactionItem(tx: Transaction) {
                 Text(dateString, color = Color.Gray, fontSize = 11.sp)
             }
         }
-        Text(
-            text = "${if (tx.type == "DEBIT") "-" else ""} ${formatCurrency(tx.amount, tx.currency)}",
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 16.sp,
-            color = if (tx.type == "DEBIT") Color(0xFFC62828) else Color(0xFF2E7D32)
-        )
+        Text(text = "${if (tx.type == "DEBIT") "-" else ""} ${formatCurrency(tx.amount, tx.currency)}", fontWeight = FontWeight.ExtraBold, fontSize = 16.sp, color = if (tx.type == "DEBIT") Color(0xFFC62828) else Color(0xFF2E7D32))
     }
 }

@@ -20,21 +20,27 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 100")
     fun getRecentTransactions(): Flow<List<Transaction>>
 
+    // Grouping by currency to handle multi-currency dashboard properly
     @Query("""
         SELECT 
+            currency,
             SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END) - 
-            SUM(CASE WHEN type = 'REFUND' THEN amount ELSE 0 END) 
+            SUM(CASE WHEN type = 'REFUND' THEN amount ELSE 0 END) as totalAmount
         FROM transactions 
         WHERE timestamp BETWEEN :startDate AND :endDate
+        GROUP BY currency
     """)
-    fun getTotalSpent(startDate: Long, endDate: Long): Flow<Double?>
+    fun getTotalSpentByCurrency(startDate: Long, endDate: Long): Flow<List<CurrencySum>>
 
     @Query("""
-        SELECT SUM(amount) 
+        SELECT 
+            currency,
+            SUM(amount) as totalAmount
         FROM transactions 
         WHERE type = 'INVESTMENT' AND timestamp BETWEEN :startDate AND :endDate
+        GROUP BY currency
     """)
-    fun getTotalInvested(startDate: Long, endDate: Long): Flow<Double?>
+    fun getTotalInvestedByCurrency(startDate: Long, endDate: Long): Flow<List<CurrencySum>>
 
     @Query("""
         SELECT category, SUM(amount) as totalAmount 
@@ -81,3 +87,8 @@ interface TransactionDao {
         updatePastTransactionsForMerchant(rawMerchantKey, newName, newCategory)
     }
 }
+
+data class CurrencySum(
+    val currency: String,
+    val totalAmount: Double
+)
