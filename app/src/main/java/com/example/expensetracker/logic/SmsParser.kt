@@ -16,7 +16,7 @@ object SmsParser {
         "do not share", "apply for", "pre-approved", "reward points",
         "limit reached", "transaction failed", "declined", "failed",
         "insufficient funds", "unsuccessful", "cancelled", "timed out",
-        "not processed", "reversed due to"
+        "not processed", "reversed due to", "reminder", "info:"
     )
 
     private val TRANSFER_KEYWORDS = listOf(
@@ -25,32 +25,38 @@ object SmsParser {
 
     private val INVESTMENT_KEYWORDS = listOf(
         "mutual fund", "sip", "investment", "broker", "zerodha", "groww", "upstox",
-        "equity", "securities", "demat", "portfolio", "asset management", "amc"
+        "equity", "securities", "demat", "portfolio", "asset management", "amc", "stock"
     )
 
     fun parseBankSms(smsBody: String): ParsedSms {
         val lowerSms = smsBody.lowercase()
 
-        // 1. Basic validation
         if (INVALID_KEYWORDS.any { lowerSms.contains(it) }) {
             return ParsedSms(0.0, "UNKNOWN", "Invalid Message", "INR", false)
         }
 
-        // 2. Extract Amount and Currency
-        // More robust regex for international formats: symbol/code before or after amount
-        // Groups: 1=PrefixCurrency, 2=Amount, 3=SuffixCurrency
-        val combinedRegex = Regex("(?i)(rs\\.?|inr|usd|\\$|eur|€|gbp|£|aed|sar)?\\s*([\\d,]+\\.?\\d*)\\s*(inr|usd|\\$|eur|€|gbp|£|aed|sar)?")
-        val amountMatch = combinedRegex.find(smsBody)
+        val curPattern = "(?:rs\\.?|inr|usd|\\$|eur|€|gbp|£|aed|sar|cad|aud|sgd)"
+        val amountPattern = "([\\d,]+\\.?\\d*)"
         
-        val prefixCurr = amountMatch?.groupValues?.get(1)?.uppercase() ?: ""
-        val suffixCurr = amountMatch?.groupValues?.get(3)?.uppercase() ?: ""
-        val amountStr = amountMatch?.groupValues?.get(2)?.replace(",", "") ?: ""
-        val amount = amountStr.toDoubleOrNull() ?: 0.0
+        val match1 = Regex("(?i)($curPattern)\\s*$amountPattern").find(smsBody)
+        val match2 = Regex("(?i)$amountPattern\\s*($curPattern)").find(smsBody)
+        
+        var currencyRaw = "INR"
+        var amountStr = ""
 
-        val currencyRaw = when {
-            prefixCurr.isNotEmpty() -> prefixCurr
-            suffixCurr.isNotEmpty() -> suffixCurr
-            else -> "INR"
+        if (match1 != null) {
+            currencyRaw = match1.groupValues[1].uppercase()
+            amountStr = match1.groupValues[2]
+        } else if (match2 != null) {
+            amountStr = match2.groupValues[1]
+            currencyRaw = match2.groupValues[2].uppercase()
+        } else {
+            val matchFallback = Regex(amountPattern).find(smsBody)
+            if (matchFallback != null) {
+                amountStr = matchFallback.groupValues[1]
+            } else {
+                return ParsedSms(0.0, "UNKNOWN", "No Amount Found", "INR", false)
+            }
         }
 
         val currency = when {
@@ -61,21 +67,21 @@ object SmsParser {
             else -> currencyRaw
         }
 
-        if (amount <= 0.0) return ParsedSms(0.0, "UNKNOWN", "Invalid Amount", currency, false)
+        val amount = amountStr.replace(",", "").toDoubleOrNull() ?: 0.0
+        if (amount <= 0.0) return ParsedSms(0.0, "UNKNOWN", "Zero Amount", currency, false)
 
-        // 3. Determine Transaction Type
         val type = when {
             INVESTMENT_KEYWORDS.any { lowerSms.contains(it) } -> "INVESTMENT"
             TRANSFER_KEYWORDS.any { lowerSms.contains(it) } -> "TRANSFER"
             lowerSms.contains("refund") || lowerSms.contains("reversed") || lowerSms.contains("cashback") -> "REFUND"
-            lowerSms.contains("debited") || lowerSms.contains("spent") || lowerSms.contains("paid") -> "DEBIT"
-            lowerSms.contains("credited") || lowerSms.contains("received") || lowerSms.contains("payment of") -> "CREDIT"
+            lowerSms.contains("debited") || lowerSms.contains("spent") || lowerSms.contains("paid") || lowerSms.contains("purchase") -> "DEBIT"
+            lowerSms.contains("credited") || lowerSms.contains("received") || lowerSms.contains("deposit") -> "CREDIT"
             else -> "UNKNOWN"
         }
 
-        // 4. Extract Merchant
-        val merchantMarkers = listOf("at ", "to ", "info-", "info:", "by ", "in ", "from ", "towards ")
+        val merchantMarkers = listOf("at ", "to ", "info-", "info:", "by ", "in ", "from ", "towards ", "using ", "for ")
         val potentialMatches = mutableListOf<String>()
+        
         for (marker in merchantMarkers) {
             var searchIndex = 0
             while (true) {
@@ -83,52 +89,46 @@ object SmsParser {
                 if (index == -1) break
                 val start = index + marker.length
                 val potential = smsBody.substring(start)
-                val terminators = listOf(" on ", " via ", " ref ", " val ", " on\\b", " via\\b", " ref\\b", " val\\b", "\\.", "your available", "ending with", "not you")
+                val terminators = listOf(" on ", " via ", " ref ", " val ", " on\\b", " via\\b", " ref\\b", " val\\b", "\\.", "your available", "ending with", "not you", "bal", "balance", "\\d{2}-\\d{2}-\\d{2}")
                 var earliestTerm = potential.length
                 for (term in terminators) {
                     val match = Regex("(?i)$term").find(potential)
-                    if (match != null && match.range.start < earliestTerm) {
-                        earliestTerm = match.range.start
-                    }
+                    if (match != null && match.range.start < earliestTerm) earliestTerm = match.range.start
                 }
                 val candidate = potential.substring(0, earliestTerm).trim()
-                if (candidate.isNotEmpty()) potentialMatches.add(candidate)
+                if (candidate.isNotEmpty() && candidate.length > 2) potentialMatches.add(candidate)
                 searchIndex = index + 1 
             }
         }
         
-        val rawMerchant = potentialMatches.find { candidate ->
-            val lowerCandidate = candidate.lowercase()
-            val isSusAccountNumber = lowerCandidate.contains(Regex("\\d{4,}")) || lowerCandidate.startsWith("a/c") || lowerCandidate.startsWith("acct")
-            val isFooterNoise = lowerCandidate.contains("block") || lowerCandidate.contains("reissue") || lowerCandidate.contains("call") || lowerCandidate.contains("not you")
-            !isSusAccountNumber && !isFooterNoise && !lowerCandidate.startsWith("inr") && !lowerCandidate.startsWith("rs") && !lowerCandidate.contains(Regex("^\\d+$"))
-        } ?: potentialMatches.firstOrNull { !it.contains(Regex("\\d{4,}")) } ?: "Transaction Details Needed"
-        
-        val merchant = cleanMerchantName(rawMerchant)
+        val merchant = potentialMatches.find { candidate ->
+            val lc = candidate.lowercase()
+            val isAccNum = lc.contains(Regex("\\d{4,}"))
+            val isFooter = lc.contains("block") || lc.contains("call") || lc.contains("limit")
+            val isBank = lc.contains("bank") || lc.contains("card")
+            !isAccNum && !isFooter && !isBank && lc.any { it.isLetter() }
+        } ?: potentialMatches.firstOrNull { it.any { c -> c.isLetter() } } 
+          ?: "Merchant Details Required"
 
         return ParsedSms(
             amount = amount,
             type = type,
-            merchant = merchant,
+            merchant = cleanMerchantName(merchant),
             currency = currency,
             isValidTransaction = type != "UNKNOWN"
         )
     }
 
     fun cleanMerchantName(rawName: String?): String {
-        if (rawName.isNullOrBlank()) return "Transaction Details Needed"
-        var clean = rawName.trim()
+        if (rawName.isNullOrBlank()) return "Merchant Details Required"
+        var clean = rawName.trim().replace(Regex("(?i)inr|rs\\.|usd|\\$|eur|€"), "").trim()
         clean = clean.replace(Regex("@[a-z]+"), "")
-        val lowerClean = clean.lowercase()
-        if (lowerClean.startsWith("vpa-")) clean = clean.substring(4)
-        else if (lowerClean.startsWith("info-")) clean = clean.substring(5)
         if (!clean.matches(Regex("^[-/]*\\d+$"))) {
             clean = clean.replace(Regex("[-/]*\\d+$"), "")
         }
         clean = clean.trim { !it.isLetterOrDigit() }
-        return clean.trim().split(Regex("\\s+")).joinToString(" ") { word ->
-            if (word.isEmpty()) return@joinToString ""
-            word.lowercase().replaceFirstChar { it.uppercase() }
-        }
+        return clean.split(Regex("\\s+")).joinToString(" ") { word ->
+            if (word.isEmpty()) "" else word.lowercase().replaceFirstChar { it.uppercase() }
+        }.trim()
     }
 }

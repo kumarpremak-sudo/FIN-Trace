@@ -17,10 +17,9 @@ interface TransactionDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTransactions(transactions: List<Transaction>)
 
-    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 100")
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 150")
     fun getRecentTransactions(): Flow<List<Transaction>>
 
-    // Grouping by currency to handle multi-currency dashboard properly
     @Query("""
         SELECT 
             currency,
@@ -29,6 +28,7 @@ interface TransactionDao {
         FROM transactions 
         WHERE timestamp BETWEEN :startDate AND :endDate
         GROUP BY currency
+        HAVING totalAmount != 0
     """)
     fun getTotalSpentByCurrency(startDate: Long, endDate: Long): Flow<List<CurrencySum>>
 
@@ -39,6 +39,7 @@ interface TransactionDao {
         FROM transactions 
         WHERE type = 'INVESTMENT' AND timestamp BETWEEN :startDate AND :endDate
         GROUP BY currency
+        HAVING totalAmount != 0
     """)
     fun getTotalInvestedByCurrency(startDate: Long, endDate: Long): Flow<List<CurrencySum>>
 
@@ -75,7 +76,7 @@ interface TransactionDao {
     @Delete
     suspend fun deleteRule(mapping: MerchantMapping)
 
-    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(rawMerchant) = lower(:rawMerchantKey)")
+    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(trim(rawMerchant)) = lower(trim(:rawMerchantKey))")
     suspend fun updatePastTransactionsForMerchant(rawMerchantKey: String, newName: String, newCategory: String)
 
     @Query("DELETE FROM transactions")
@@ -83,7 +84,7 @@ interface TransactionDao {
 
     @RoomTransaction
     suspend fun applyRuleAndRename(rawMerchantKey: String, newName: String, newCategory: String) {
-        insertMerchantRule(MerchantMapping(rawMerchantKey, newName, newCategory))
+        insertMerchantRule(MerchantMapping(rawMerchantKey.trim().lowercase(), newName, newCategory))
         updatePastTransactionsForMerchant(rawMerchantKey, newName, newCategory)
     }
 }

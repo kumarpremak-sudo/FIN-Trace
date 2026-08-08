@@ -15,7 +15,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -45,7 +44,8 @@ enum class Timeframe { DAILY, WEEKLY, MONTHLY, YEARLY, CUSTOM }
 data class DashboardState(
     val spentByCurrency: List<CurrencySum> = emptyList(),
     val investedByCurrency: List<CurrencySum> = emptyList(),
-    val categoryBreakdown: List<CategorySum> = emptyList()
+    val categoryBreakdown: List<CategorySum> = emptyList(),
+    val isLoading: Boolean = true
 )
 
 class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
@@ -110,9 +110,11 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
             dao.getTotalInvestedByCurrency(range.first, range.second),
             dao.getExpensesByCategory(range.first, range.second)
         ) { spent, invested, categories ->
-            DashboardState(spent, invested, categories)
+            DashboardState(spent, invested, categories, isLoading = false)
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState())
+    }
+    // OPTIMIZATION: Use WhileSubscribed(5000) to stop DB polling when app is in background/other tab
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState(isLoading = true))
 
     val recentTransactions: StateFlow<List<Transaction>> = dao.getRecentTransactions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -134,16 +136,11 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
     var showDatePicker by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF8F9FE))) {
-        // --- PREMIUM GLOBAL HEADER ---
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(bottomStart = 40.dp, bottomEnd = 40.dp))
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B)) // Deep Slate / Global Professional
-                    )
-                )
+                .background(Brush.verticalGradient(colors = listOf(Color(0xFF0F172A), Color(0xFF1E293B))))
                 .padding(top = 24.dp, bottom = 40.dp, start = 24.dp, end = 24.dp)
         ) {
             Column {
@@ -153,7 +150,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Financial Overview", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                        Text("Portfolio Performance", color = Color.White.copy(alpha = 0.6f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
                         Text(
                             text = if (timeframe == Timeframe.CUSTOM) "${DateFormatSymbols().months[month]} $year" else timeframe.name.lowercase().replaceFirstChar { it.uppercase() },
                             color = Color.White,
@@ -165,7 +162,7 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                         onClick = { showDatePicker = !showDatePicker },
                         modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)
                     ) {
-                        Icon(Icons.Default.Tune, contentDescription = "Settings", tint = Color.White)
+                        Icon(Icons.Default.Insights, contentDescription = "Range", tint = Color.White)
                     }
                 }
 
@@ -174,14 +171,11 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
-
-                // WEALTH CARD
                 WealthCard(data)
             }
         }
 
-        // --- NAVIGATION TABS ---
-        val entries = Timeframe.entries.take(4)
+        val entries = remember { Timeframe.entries.take(4) }
         TabRow(
             selectedTabIndex = if (timeframe == Timeframe.CUSTOM) 0 else timeframe.ordinal,
             containerColor = Color.Transparent,
@@ -190,22 +184,12 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             indicator = { tabPositions ->
                 val index = if (timeframe == Timeframe.CUSTOM) 0 else timeframe.ordinal
                 if (index < tabPositions.size) {
-                    Box(
-                        Modifier
-                            .tabIndicatorOffset(tabPositions[index])
-                            .height(3.dp)
-                            .padding(horizontal = 24.dp)
-                            .background(Color(0xFF6366F1), RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp))
-                    )
+                    Box(Modifier.tabIndicatorOffset(tabPositions[index]).height(3.dp).padding(horizontal = 24.dp).background(Color(0xFF6366F1), RoundedCornerShape(topStart = 3.dp, topEnd = 3.dp)))
                 }
             }
         ) {
             entries.forEach { tf ->
-                Tab(
-                    selected = timeframe == tf,
-                    onClick = { viewModel.setTimeframe(tf) },
-                    text = { Text(tf.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 13.sp, fontWeight = if (timeframe == tf) FontWeight.Bold else FontWeight.Normal) }
-                )
+                Tab(selected = timeframe == tf, onClick = { viewModel.setTimeframe(tf) }, text = { Text(tf.name.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 13.sp) })
             }
         }
 
@@ -214,40 +198,31 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
             contentPadding = PaddingValues(24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // TREND MINI-CHART
-            item {
-                TrendInsightCard(data)
+            if (data.isLoading) {
+                item { LinearProgressIndicator(modifier = Modifier.fillMaxWidth().clip(CircleShape), color = Color(0xFF6366F1)) }
             }
 
+            item(key = "trend_card") { TrendInsightCard(data) }
+
             if (data.categoryBreakdown.isNotEmpty()) {
-                item { 
-                    Text("Top Spending", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = Color(0xFF1E293B)) 
-                }
-                val maxAmount = data.categoryBreakdown.firstOrNull()?.totalAmount ?: 1.0
+                item(key = "spending_header") { Text("Spending Analysis", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = Color(0xFF1E293B)) }
+                val maxAmount = data.categoryBreakdown.maxOfOrNull { it.totalAmount } ?: 1.0
                 items(data.categoryBreakdown.take(3), key = { it.category }) { cat ->
                     GlobalCategoryProgress(cat, maxAmount)
                 }
             }
 
-            item {
+            item(key = "activity_header") {
                 Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text("Recent Insights", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, color = Color(0xFF1E293B))
-                    TextButton(onClick = { viewModel.refresh() }) { 
-                        Text("Refresh Scan", color = Color(0xFF6366F1), fontWeight = FontWeight.Bold) 
-                    }
+                    TextButton(onClick = { viewModel.refresh() }) { Text("Refresh Feed", color = Color(0xFF6366F1), fontWeight = FontWeight.Bold) }
                 }
             }
 
             if (transactions.isEmpty()) {
-                item { 
-                    Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                        Text("No transactions in this period.", color = Color.Gray, textAlign = TextAlign.Center) 
-                    }
-                }
+                item(key = "no_transactions") { Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { Text("No records found for this period.", color = Color.Gray) } }
             } else {
-                items(transactions, key = { it.id }) { tx -> 
-                    GlobalTransactionItem(tx) 
-                }
+                items(transactions, key = { it.id }) { tx -> GlobalTransactionItem(tx) }
             }
         }
     }
@@ -255,19 +230,18 @@ fun DashboardScreen(viewModel: DashboardViewModel) {
 
 @Composable
 fun WealthCard(data: DashboardState) {
-    val allCurrencies = (data.spentByCurrency.map { it.currency } + data.investedByCurrency.map { it.currency }).distinct()
+    val allCurrencies = remember(data) { (data.spentByCurrency.map { it.currency } + data.investedByCurrency.map { it.currency }).distinct() }
     
     if (allCurrencies.isEmpty()) {
         SimpleWealthCard("0.00", "INR")
     } else {
-        // Swipeable currency view
         Row(
             modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             allCurrencies.forEach { curr ->
-                val spent = data.spentByCurrency.find { it.currency == curr }?.totalAmount ?: 0.0
-                val invested = data.investedByCurrency.find { it.currency == curr }?.totalAmount ?: 0.0
+                val spent = remember(data, curr) { data.spentByCurrency.find { it.currency == curr }?.totalAmount ?: 0.0 }
+                val invested = remember(data, curr) { data.investedByCurrency.find { it.currency == curr }?.totalAmount ?: 0.0 }
                 WealthSummaryCard(spent, invested, curr)
             }
         }
@@ -283,21 +257,16 @@ fun WealthSummaryCard(spent: Double, invested: Double, currency: String) {
         modifier = Modifier.width(280.dp)
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
-            Text("Net Cashflow ($currency)", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
-            Text(
-                text = formatCurrency(invested - spent, currency),
-                color = Color.White,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Black
-            )
+            Text("Estimated Cashflow ($currency)", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+            Text(text = formatCurrency(invested - spent, currency), color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
             Spacer(modifier = Modifier.height(20.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Column {
-                    Text("Outflow", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                    Text("Total Outflow", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                     Text(formatCurrency(spent, currency), color = Color(0xFFFDA4AF), fontWeight = FontWeight.Bold)
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("Growth", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
+                    Text("Investment", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp)
                     Text(formatCurrency(invested, currency), color = Color(0xFF6EE7B7), fontWeight = FontWeight.Bold)
                 }
             }
@@ -307,13 +276,9 @@ fun WealthSummaryCard(spent: Double, invested: Double, currency: String) {
 
 @Composable
 fun SimpleWealthCard(amount: String, currency: String) {
-    Surface(
-        color = Color.White.copy(alpha = 0.1f),
-        shape = RoundedCornerShape(24.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Surface(color = Color.White.copy(alpha = 0.1f), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(24.dp)) {
-            Text("Ready to track...", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
+            Text("Current Balance", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
             Text("$currency $amount", color = Color.White, fontSize = 32.sp, fontWeight = FontWeight.Black)
         }
     }
@@ -321,41 +286,24 @@ fun SimpleWealthCard(amount: String, currency: String) {
 
 @Composable
 fun TrendInsightCard(data: DashboardState) {
-    Surface(
-        color = Color.White,
-        shape = RoundedCornerShape(24.dp),
-        shadowElevation = 2.dp,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier.padding(20.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier.size(48.dp).background(Color(0xFFEEF2FF), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
+    Surface(color = Color.White, shape = RoundedCornerShape(24.dp), shadowElevation = 1.dp, modifier = Modifier.fillMaxWidth()) {
+        Row(modifier = Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(48.dp).background(Color(0xFFEEF2FF), CircleShape), contentAlignment = Alignment.Center) {
                 Icon(Icons.Default.AutoGraph, contentDescription = null, tint = Color(0xFF6366F1))
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text("Spending Velocity", color = Color.Gray, fontSize = 12.sp)
-                Text(
-                    text = if (data.spentByCurrency.isEmpty()) "Optimal" else "Analyzing Trends...", 
-                    fontWeight = FontWeight.Bold, 
-                    fontSize = 16.sp,
-                    color = Color(0xFF1E293B)
-                )
+                Text(text = if (data.spentByCurrency.isEmpty()) "Optimal" else "Tracking Trends...", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF1E293B))
             }
             Spacer(modifier = Modifier.weight(1f))
-            // Mini sparkline visual
             Canvas(modifier = Modifier.size(60.dp, 30.dp)) {
                 val path = Path().apply {
                     moveTo(0f, size.height)
-                    lineTo(size.width * 0.2f, size.height * 0.8f)
-                    lineTo(size.width * 0.5f, size.height * 0.9f)
-                    lineTo(size.width * 0.8f, size.height * 0.3f)
-                    lineTo(size.width, size.height * 0.5f)
+                    lineTo(size.width * 0.2f, size.height * 0.7f)
+                    lineTo(size.width * 0.4f, size.height * 0.9f)
+                    lineTo(size.width * 0.7f, size.height * 0.2f)
+                    lineTo(size.width, size.height * 0.4f)
                 }
                 drawPath(path, color = Color(0xFF6366F1), style = Stroke(width = 2.dp.toPx()))
             }
@@ -365,7 +313,7 @@ fun TrendInsightCard(data: DashboardState) {
 
 @Composable
 fun GlobalCategoryProgress(cat: CategorySum, max: Double) {
-    val progress = if (max > 0) (cat.totalAmount / max).toFloat() else 0f
+    val progress = remember(cat, max) { if (max > 0) (cat.totalAmount / max).toFloat() else 0f }
     Column {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(cat.category, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF334155))
@@ -373,9 +321,9 @@ fun GlobalCategoryProgress(cat: CategorySum, max: Double) {
         }
         Spacer(modifier = Modifier.height(8.dp))
         LinearProgressIndicator(
-            progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape),
-            color = Color(0xFF6366F1),
+            progress = { progress }, 
+            modifier = Modifier.fillMaxWidth().height(10.dp).clip(CircleShape), 
+            color = Color(0xFF6366F1), 
             trackColor = Color(0xFFE2E8F0)
         )
     }
@@ -385,44 +333,19 @@ fun GlobalCategoryProgress(cat: CategorySum, max: Double) {
 fun GlobalTransactionItem(tx: Transaction) {
     val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     val dateString = remember(tx.timestamp) { dateFormat.format(Date(tx.timestamp)) }
+    
+    val typeColor = remember(tx.type) {
+        when(tx.type) {
+            "INVESTMENT" -> Color(0xFFDCFCE7) to Color(0xFF15803D)
+            "DEBIT" -> Color(0xFFFEE2E2) to Color(0xFFB91C1C)
+            else -> Color(0xFFF3E5F5) to Color(0xFF6366F1)
+        }
+    }
 
-    Surface(
-        color = Color.White,
-        shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth(),
-        shadowElevation = 1.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(
-                        when(tx.type) {
-                            "INVESTMENT" -> Color(0xFFDCFCE7)
-                            "DEBIT" -> Color(0xFFFEE2E2)
-                            else -> Color(0xFFF3E5F5)
-                        },
-                        CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = when(tx.type) {
-                        "INVESTMENT" -> Icons.Default.TrendingUp
-                        "DEBIT" -> Icons.Default.ShoppingCart
-                        else -> Icons.Default.Payments
-                    },
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                    tint = when(tx.type) {
-                        "INVESTMENT" -> Color(0xFF15803D)
-                        "DEBIT" -> Color(0xFFB91C1C)
-                        else -> Color(0xFF6366F1)
-                    }
-                )
+    Surface(color = Color.White, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth(), shadowElevation = 0.5.dp) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(44.dp).background(typeColor.first, CircleShape), contentAlignment = Alignment.Center) {
+                Icon(imageVector = when(tx.type) { "INVESTMENT" -> Icons.Default.TrendingUp; "DEBIT" -> Icons.Default.ShoppingCart; else -> Icons.Default.Payments }, contentDescription = null, modifier = Modifier.size(20.dp), tint = typeColor.second)
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -430,12 +353,7 @@ fun GlobalTransactionItem(tx: Transaction) {
                 Text(dateString, color = Color.Gray, fontSize = 12.sp)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = "${if (tx.type == "DEBIT") "-" else ""} ${formatCurrency(tx.amount, tx.currency)}",
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 17.sp,
-                    color = if (tx.type == "DEBIT") Color(0xFF1E293B) else Color(0xFF15803D)
-                )
+                Text(text = "${if (tx.type == "DEBIT") "-" else ""} ${formatCurrency(tx.amount, tx.currency)}", fontWeight = FontWeight.ExtraBold, fontSize = 17.sp, color = if (tx.type == "DEBIT") Color(0xFF1E293B) else Color(0xFF15803D))
                 Text(tx.category, color = Color.Gray.copy(alpha = 0.7f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
             }
         }
@@ -455,8 +373,8 @@ fun formatCurrency(amount: Double, currency: String): String {
 
 @Composable
 fun DatePickerView(currentMonth: Int, currentYear: Int, onMonthSelected: (Int) -> Unit, onYearSelected: (Int) -> Unit) {
-    val months = DateFormatSymbols().months.take(12)
-    val years = (2020..Calendar.getInstance().get(Calendar.YEAR)).toList()
+    val months = remember { DateFormatSymbols().months.take(12) }
+    val years = remember { (2020..Calendar.getInstance().get(Calendar.YEAR)).toList() }
     Column(modifier = Modifier.fillMaxWidth().padding(top = 20.dp).background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(20.dp)).padding(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
            var expandedMonth by remember { mutableStateOf(false) }
