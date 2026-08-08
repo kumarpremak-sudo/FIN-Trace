@@ -57,11 +57,11 @@ interface TransactionDao {
     @Query("""
         SELECT * 
         FROM merchant_mappings 
-        WHERE :rawMerchant LIKE '%' || rawMerchant || '%' 
+        WHERE :rawMerchantInput LIKE '%' || rawMerchant || '%' 
         ORDER BY length(rawMerchant) DESC 
         LIMIT 1
     """)
-    suspend fun getRuleForMerchant(rawMerchant: String): MerchantMapping?
+    suspend fun getRuleForMerchant(rawMerchantInput: String): MerchantMapping?
 
     @Query("SELECT * FROM merchant_mappings ORDER BY rawMerchant ASC")
     fun getAllRules(): Flow<List<MerchantMapping>>
@@ -69,15 +69,15 @@ interface TransactionDao {
     @Delete
     suspend fun deleteRule(mapping: MerchantMapping)
 
-    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(rawMerchant) = lower(:rawMerchant)")
-    suspend fun updatePastTransactionsForMerchant(rawMerchant: String, newName: String, newCategory: String)
+    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(rawMerchant) = lower(:rawMerchantKey)")
+    suspend fun updatePastTransactionsForMerchant(rawMerchantKey: String, newName: String, newCategory: String)
 
     @Query("DELETE FROM transactions")
     suspend fun clearAllTransactions()
 
     @RoomTransaction
-    suspend fun applyRuleAndRename(rawMerchant: String, newName: String, newCategory: String) {
-        insertMerchantRule(MerchantMapping(rawMerchant, newName, newCategory))
-        updatePastTransactionsForMerchant(rawMerchant, newName, newCategory)
+    suspend fun applyRuleAndRename(rawMerchantKey: String, newName: String, newCategory: String) {
+        insertMerchantRule(MerchantMapping(rawMerchantKey, newName, newCategory))
+        updatePastTransactionsForMerchant(rawMerchantKey, newName, newCategory)
     }
 }
