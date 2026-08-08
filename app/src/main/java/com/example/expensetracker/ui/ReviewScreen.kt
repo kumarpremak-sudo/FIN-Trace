@@ -45,7 +45,10 @@ class ReviewViewModel(private val dao: TransactionDao) : ViewModel() {
 
     fun assignCategoryAndName(transaction: Transaction, newName: String, category: String) {
         viewModelScope.launch {
-            dao.applyRuleAndRename(transaction.rawMerchant.lowercase(), newName, category)
+            // Apply rule and rename all past matching transactions atomically
+            // Ensure rawMerchant is not null or blank
+            val rawKey = transaction.rawMerchant.ifBlank { transaction.merchant }.lowercase()
+            dao.applyRuleAndRename(rawKey, newName, category)
         }
     }
 }
