@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
 class RulesViewModel(private val dao: TransactionDao) : ViewModel() {
 
     val allRules: StateFlow<List<MerchantMapping>> = dao.getAllRules()
-        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val categories = listOf("Food", "Transport", "Shopping", "Groceries", "Bills", "Investment", "Health", "Personal")
 
@@ -44,8 +44,7 @@ class RulesViewModel(private val dao: TransactionDao) : ViewModel() {
 
     fun updateRule(rawMerchant: String, newName: String, newCategory: String) {
         viewModelScope.launch {
-            dao.insertMerchantRule(MerchantMapping(rawMerchant, newName, newCategory))
-            dao.updatePastTransactionsForMerchant(rawMerchant, newName, newCategory)
+            dao.applyRuleAndRename(rawMerchant.trim().lowercase(), newName, newCategory)
         }
     }
 
@@ -101,17 +100,23 @@ fun RulesManagementScreen(viewModel: RulesViewModel) {
         
         Spacer(modifier = Modifier.height(16.dp))
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(16.dp)
-        ) {
-            items(rules) { rule ->
-                RuleRow(
-                    rule = rule,
-                    onEdit = { ruleToEdit = rule },
-                    onDelete = { viewModel.deleteRule(rule) }
-                )
+        if (rules.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No rules learned yet.", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(16.dp)
+            ) {
+                items(rules, key = { it.rawMerchant }) { rule ->
+                    RuleRow(
+                        rule = rule,
+                        onEdit = { ruleToEdit = rule },
+                        onDelete = { viewModel.deleteRule(rule) }
+                    )
+                }
             }
         }
     }

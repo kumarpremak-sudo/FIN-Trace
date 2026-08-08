@@ -6,16 +6,16 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "transactions",
-    indices = [Index(value = ["amount", "timestamp", "merchant"], unique = true)]
+    indices = [Index(value = ["amount", "timestamp", "rawMerchant"], unique = true)] // BUG FIX: Use rawMerchant for unique constraint
 )
 data class Transaction(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val rawSms: String,
     val amount: Double,
     val type: String, // "DEBIT", "CREDIT", "REFUND", "TRANSFER", "INVESTMENT"
-    val merchant: String, // Preferred name or parsed name
-    val rawMerchant: String, // Original parsed name from SMS
-    val currency: String = "INR", // Support for multiple currencies
+    val merchant: String, // User-facing name (may change via rules)
+    val rawMerchant: String, // The stable original parsed name
+    val currency: String = "INR",
     val timestamp: Long,
     val category: String = "Uncategorized"
 )
