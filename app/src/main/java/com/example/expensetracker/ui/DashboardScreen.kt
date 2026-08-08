@@ -62,38 +62,61 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
     private val _refreshTrigger = MutableStateFlow(0)
 
     private fun getRange(timeframe: Timeframe, month: Int, year: Int): Pair<Long, Long> {
-        val cal = Calendar.getInstance()
-        val end = cal.timeInMillis
+        val startCal = Calendar.getInstance()
+        val endCal = Calendar.getInstance()
+
+        // Common: Reset time components for the start
+        startCal.set(Calendar.HOUR_OF_DAY, 0)
+        startCal.set(Calendar.MINUTE, 0)
+        startCal.set(Calendar.SECOND, 0)
+        startCal.set(Calendar.MILLISECOND, 0)
+
+        // Common: Set time to the very end of the day for the end
+        endCal.set(Calendar.HOUR_OF_DAY, 23)
+        endCal.set(Calendar.MINUTE, 59)
+        endCal.set(Calendar.SECOND, 59)
+        endCal.set(Calendar.MILLISECOND, 999)
+
         return when (timeframe) {
             Timeframe.DAILY -> {
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-                cal.timeInMillis to end
+                startCal.timeInMillis to endCal.timeInMillis
             }
             Timeframe.WEEKLY -> {
-                cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-                cal.timeInMillis to end
+                // Set start to the first day of the week
+                startCal.set(Calendar.DAY_OF_WEEK, startCal.firstDayOfWeek)
+                // Set end to the last day of the week (Start + 6 days)
+                endCal.timeInMillis = startCal.timeInMillis + (7L * 24 * 60 * 60 * 1000) - 1
+                startCal.timeInMillis to endCal.timeInMillis
             }
             Timeframe.MONTHLY -> {
-                cal.set(Calendar.DAY_OF_MONTH, 1)
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-                cal.timeInMillis to end
+                startCal.set(Calendar.DAY_OF_MONTH, 1)
+                endCal.set(Calendar.DAY_OF_MONTH, endCal.getActualMaximum(Calendar.DAY_OF_MONTH))
+                startCal.timeInMillis to endCal.timeInMillis
             }
             Timeframe.YEARLY -> {
-                cal.set(Calendar.DAY_OF_YEAR, 1)
-                cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
-                cal.timeInMillis to end
+                startCal.set(Calendar.DAY_OF_YEAR, 1)
+                endCal.set(Calendar.MONTH, Calendar.DECEMBER)
+                endCal.set(Calendar.DAY_OF_MONTH, 31)
+                startCal.timeInMillis to endCal.timeInMillis
             }
             Timeframe.CUSTOM -> {
-                val startCal = Calendar.getInstance()
-                startCal.set(Calendar.YEAR, year)
-                startCal.set(Calendar.MONTH, month)
-                startCal.set(Calendar.DAY_OF_MONTH, 1)
-                startCal.set(Calendar.HOUR_OF_DAY, 0); startCal.set(Calendar.MINUTE, 0); startCal.set(Calendar.SECOND, 0); startCal.set(Calendar.MILLISECOND, 0)
-                val endCal = (startCal.clone() as Calendar)
-                endCal.set(Calendar.DAY_OF_MONTH, endCal.getActualMaximum(Calendar.DAY_OF_MONTH))
-                endCal.set(Calendar.HOUR_OF_DAY, 23); endCal.set(Calendar.MINUTE, 59); endCal.set(Calendar.SECOND, 59); endCal.set(Calendar.MILLISECOND, 999)
-                startCal.timeInMillis to endCal.timeInMillis
+                val customStart = Calendar.getInstance().apply {
+                    set(Calendar.YEAR, year)
+                    set(Calendar.MONTH, month)
+                    set(Calendar.DAY_OF_MONTH, 1)
+                    set(Calendar.HOUR_OF_DAY, 0)
+                    set(Calendar.MINUTE, 0)
+                    set(Calendar.SECOND, 0)
+                    set(Calendar.MILLISECOND, 0)
+                }
+                val customEnd = (customStart.clone() as Calendar).apply {
+                    set(Calendar.DAY_OF_MONTH, getActualMaximum(Calendar.DAY_OF_MONTH))
+                    set(Calendar.HOUR_OF_DAY, 23)
+                    set(Calendar.MINUTE, 59)
+                    set(Calendar.SECOND, 59)
+                    set(Calendar.MILLISECOND, 999)
+                }
+                customStart.timeInMillis to customEnd.timeInMillis
             }
         }
     }
