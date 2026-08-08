@@ -35,6 +35,7 @@ object SmsParser {
             return ParsedSms(0.0, "UNKNOWN", "Invalid Message", "INR", false)
         }
 
+        // Improved patterns to handle dots in currency codes (e.g. RS. 100)
         val curPattern = "(?:rs\\.?|inr|usd|\\$|eur|€|gbp|£|aed|sar|cad|aud|sgd)"
         val amountPattern = "([\\d,]+\\.?\\d*)"
         
@@ -45,11 +46,11 @@ object SmsParser {
         var amountStr = ""
 
         if (match1 != null) {
-            currencyRaw = match1.groupValues[1].uppercase()
+            currencyRaw = match1.groupValues[1].uppercase().replace(".", "")
             amountStr = match1.groupValues[2]
         } else if (match2 != null) {
             amountStr = match2.groupValues[1]
-            currencyRaw = match2.groupValues[2].uppercase()
+            currencyRaw = match2.groupValues[2].uppercase().replace(".", "")
         } else {
             val matchFallback = Regex(amountPattern).find(smsBody)
             if (matchFallback != null) {
@@ -79,7 +80,7 @@ object SmsParser {
             else -> "UNKNOWN"
         }
 
-        val merchantMarkers = listOf("at ", "to ", "info-", "info:", "by ", "in ", "from ", "towards ", "using ", "for ")
+        val merchantMarkers = listOf("at ", "to ", "info-", "info:", "by ", "in ", "from ", "towards ", "using ", "for ", "vpa ", "upi ")
         val potentialMatches = mutableListOf<String>()
         
         for (marker in merchantMarkers) {
@@ -107,7 +108,7 @@ object SmsParser {
             val isFooter = lc.contains("block") || lc.contains("call") || lc.contains("limit")
             val isBank = lc.contains("bank") || lc.contains("card")
             !isAccNum && !isFooter && !isBank && lc.any { it.isLetter() }
-        } ?: potentialMatches.firstOrNull { it.any { c -> c.isLetter() } } 
+        } ?: potentialMatches.firstOrNull { cand -> cand.any { it.isLetter() } }
           ?: "Merchant Details Required"
 
         return ParsedSms(

@@ -20,11 +20,12 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC LIMIT 150")
     fun getRecentTransactions(): Flow<List<Transaction>>
 
+    // BUG FIX: Added COALESCE to prevent NULL results when no matching types exist (e.g. no refunds)
     @Query("""
         SELECT 
             currency,
-            SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END) - 
-            SUM(CASE WHEN type = 'REFUND' THEN amount ELSE 0 END) as totalAmount
+            COALESCE(SUM(CASE WHEN type = 'DEBIT' THEN amount ELSE 0 END), 0) - 
+            COALESCE(SUM(CASE WHEN type = 'REFUND' THEN amount ELSE 0 END), 0) as totalAmount
         FROM transactions 
         WHERE timestamp BETWEEN :startDate AND :endDate
         GROUP BY currency
@@ -35,7 +36,7 @@ interface TransactionDao {
     @Query("""
         SELECT 
             currency,
-            SUM(amount) as totalAmount
+            COALESCE(SUM(amount), 0) as totalAmount
         FROM transactions 
         WHERE type = 'INVESTMENT' AND timestamp BETWEEN :startDate AND :endDate
         GROUP BY currency
@@ -76,7 +77,18 @@ interface TransactionDao {
     @Delete
     suspend fun deleteRule(mapping: MerchantMapping)
 
-    @Query("UPDATE transactions SET category = :newCategory, merchant = :newName WHERE lower(trim(rawMerchant)) = lower(trim(:rawMerchantKey))")
+    // BUG FIX: Update 'type' as well when categorizing past transactions (e.g. move from DEBIT to INVESTMENT)
+    @Query("""
+        UPDATE transactions 
+        SET category = :newCategory, 
+            merchant = :newName,
+            type = CASE 
+                WHEN :newCategory = 'Investment' THEN 'INVESTMENT' 
+                WHEN :newCategory = 'Transfer' THEN 'TRANSFER'
+                ELSE type 
+            END
+        WHERE lower(trim(rawMerchant)) = lower(trim(:rawMerchantKey))
+    """)
     suspend fun updatePastTransactionsForMerchant(rawMerchantKey: String, newName: String, newCategory: String)
 
     @Query("DELETE FROM transactions")
