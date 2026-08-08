@@ -84,8 +84,9 @@ interface TransactionDao {
 
     @RoomTransaction
     suspend fun applyRuleAndRename(rawMerchantKey: String, newName: String, newCategory: String) {
-        insertMerchantRule(MerchantMapping(rawMerchantKey.trim().lowercase(), newName, newCategory))
-        updatePastTransactionsForMerchant(rawMerchantKey, newName, newCategory)
+        val cleanKey = rawMerchantKey.trim().lowercase()
+        insertMerchantRule(MerchantMapping(cleanKey, newName, newCategory))
+        updatePastTransactionsForMerchant(cleanKey, newName, newCategory)
     }
 }
 

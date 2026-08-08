@@ -112,9 +112,7 @@ class DashboardViewModel(private val dao: TransactionDao) : ViewModel() {
         ) { spent, invested, categories ->
             DashboardState(spent, invested, categories, isLoading = false)
         }
-    }
-    // OPTIMIZATION: Use WhileSubscribed(5000) to stop DB polling when app is in background/other tab
-    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState(isLoading = true))
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), DashboardState(isLoading = true))
 
     val recentTransactions: StateFlow<List<Transaction>> = dao.getRecentTransactions()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
