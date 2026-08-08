@@ -5,7 +5,8 @@ import java.util.Locale
 data class ParsedSms(
     val amount: Double,
     val type: String,
-    val merchant: String, // Never null/unknown now
+    val merchant: String,
+    val currency: String, // Added currency field
     val isValidTransaction: Boolean
 )
 
@@ -32,17 +33,27 @@ object SmsParser {
 
         // 1. Basic validation: exclude informational SMS
         if (INVALID_KEYWORDS.any { lowerSms.contains(it) }) {
-            return ParsedSms(0.0, "UNKNOWN", "Invalid Message", false)
+            return ParsedSms(0.0, "UNKNOWN", "Invalid Message", "INR", false)
         }
 
-        // 2. Extract Amount
-        val amountRegex = Regex("(?i)(?:rs\\.?|inr)\\s*([\\d,]+\\.?\\d*)")
+        // 2. Extract Amount and Currency
+        // Supported currencies: Rs, INR, $, USD, EUR, €, GBP, £, AED, SAR
+        val amountRegex = Regex("(?i)(rs\\.?|inr|usd|\\$|eur|€|gbp|£|aed|sar)\\s*([\\d,]+\\.?\\d*)")
         val amountMatch = amountRegex.find(smsBody)
         
-        val amountStr = amountMatch?.groupValues?.get(1)?.replace(",", "")
+        val currencyRaw = amountMatch?.groupValues?.get(1)?.uppercase() ?: "INR"
+        val currency = when {
+            currencyRaw.startsWith("RS") || currencyRaw == "INR" -> "INR"
+            currencyRaw == "$" || currencyRaw == "USD" -> "USD"
+            currencyRaw == "€" || currencyRaw == "EUR" -> "EUR"
+            currencyRaw == "£" || currencyRaw == "GBP" -> "GBP"
+            else -> currencyRaw
+        }
+
+        val amountStr = amountMatch?.groupValues?.get(2)?.replace(",", "")
         val amount = amountStr?.toDoubleOrNull() ?: 0.0
 
-        if (amount <= 0.0) return ParsedSms(0.0, "UNKNOWN", "Invalid Amount", false)
+        if (amount <= 0.0) return ParsedSms(0.0, "UNKNOWN", "Invalid Amount", currency, false)
 
         // 3. Determine Transaction Type
         val type = when {
@@ -97,7 +108,7 @@ object SmsParser {
             !lowerCandidate.startsWith("inr") && !lowerCandidate.startsWith("rs") &&
             !lowerCandidate.contains(Regex("^\\d+$"))
         } ?: potentialMatches.firstOrNull { !it.contains(Regex("\\d{4,}")) }
-          ?: "Transaction Details Needed" // Descriptive fallback instead of Unknown
+          ?: "Transaction Details Needed"
         
         val merchant = cleanMerchantName(rawMerchant)
 
@@ -110,6 +121,7 @@ object SmsParser {
             amount = amount,
             type = finalType,
             merchant = merchant,
+            currency = currency,
             isValidTransaction = finalType != "UNKNOWN"
         )
     }

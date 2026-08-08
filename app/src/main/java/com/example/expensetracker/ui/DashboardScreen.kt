@@ -344,6 +344,17 @@ fun CategoryProgress(cat: CategorySum, max: Double) {
     }
 }
 
+fun formatCurrency(amount: Double, currency: String): String {
+    val symbol = when(currency) {
+        "INR" -> "₹"
+        "USD" -> "$"
+        "EUR" -> "€"
+        "GBP" -> "£"
+        else -> "$currency "
+    }
+    return "$symbol${"%.2f".format(amount)}"
+}
+
 @Composable
 fun TransactionItem(tx: Transaction) {
     val dateFormat = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
@@ -397,7 +408,7 @@ fun TransactionItem(tx: Transaction) {
             }
         }
         Text(
-            text = "${if (tx.type == "DEBIT") "-" else ""} ₹${"%.2f".format(tx.amount)}",
+            text = "${if (tx.type == "DEBIT") "-" else ""} ${formatCurrency(tx.amount, tx.currency)}",
             fontWeight = FontWeight.ExtraBold,
             fontSize = 16.sp,
             color = if (tx.type == "DEBIT") Color(0xFFC62828) else Color(0xFF2E7D32)

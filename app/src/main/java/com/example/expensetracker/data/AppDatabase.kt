@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [Transaction::class, MerchantMapping::class], version = 2, exportSchema = false)
+@Database(entities = [Transaction::class, MerchantMapping::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionDao(): TransactionDao
 
@@ -20,7 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "expense_tracker_db"
                 )
-                .fallbackToDestructiveMigration() // Wipe DB on schema change for simple dev cycle
+                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

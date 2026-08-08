@@ -54,7 +54,8 @@ class SmsReceiver : BroadcastReceiver() {
                         amount = parsedData.amount,
                         type = parsedData.type,
                         merchant = finalMerchantName,
-                        rawMerchant = rawMerchantName, // Preserve raw name for future rules
+                        rawMerchant = rawMerchantName,
+                        currency = parsedData.currency,
                         timestamp = timestamp,
                         category = finalCategory
                     )

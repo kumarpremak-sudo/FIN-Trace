@@ -68,6 +68,7 @@ object SmsScanner {
                                 type = parsed.type,
                                 merchant = finalMerchantName,
                                 rawMerchant = rawMerchant,
+                                currency = parsed.currency,
                                 timestamp = date,
                                 category = finalCategory
                             ))
