@@ -16,9 +16,6 @@ class SmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.SMS_RECEIVED_ACTION) return
 
-        // BUG FIX: Handle multi-part SMS messages by grouping them by address/ID if needed, 
-        // though Telephony.Sms.Intents.getMessagesFromIntent usually joins them.
-        // We'll process the full body directly.
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         if (messages.isNullOrEmpty()) return
 
@@ -31,11 +28,10 @@ class SmsReceiver : BroadcastReceiver() {
     }
 
     private fun isBankSender(sender: String): Boolean {
-        // Broaden sender identification to handle global shortcodes (usually alphanumeric or with hyphens)
         val cleanSender = sender.uppercase()
         return cleanSender.contains("-") || 
                cleanSender.any { it.isLetter() } || 
-               (cleanSender.length in 3..8 && cleanSender.all { it.isDigit() }) // Handle some regional shortcodes
+               (cleanSender.length in 3..8 && cleanSender.all { it.isDigit() })
     }
 
     private fun processBankSms(context: Context, smsBody: String, timestamp: Long) {
@@ -50,7 +46,6 @@ class SmsReceiver : BroadcastReceiver() {
                     val dao = database.transactionDao()
 
                     val rawMerchantName = parsedData.merchant
-                    // BUG FIX: Ensure case-insensitive rule lookup with trimming
                     val savedRule = dao.getRuleForMerchant(rawMerchantName.trim().lowercase())
                     
                     val finalMerchantName = savedRule?.displayName ?: rawMerchantName
@@ -64,7 +59,8 @@ class SmsReceiver : BroadcastReceiver() {
                         rawMerchant = rawMerchantName,
                         currency = parsedData.currency,
                         timestamp = timestamp,
-                        category = finalCategory
+                        category = finalCategory,
+                        referenceId = parsedData.referenceId // Pass Reference ID
                     )
 
                     dao.insertTransaction(transaction)

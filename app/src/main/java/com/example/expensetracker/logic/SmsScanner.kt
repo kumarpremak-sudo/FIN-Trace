@@ -70,7 +70,8 @@ object SmsScanner {
                                 rawMerchant = rawMerchant,
                                 currency = parsed.currency,
                                 timestamp = date,
-                                category = finalCategory
+                                category = finalCategory,
+                                referenceId = parsed.referenceId // Pass Reference ID
                             ))
                         }
                     }
